@@ -1,46 +1,46 @@
 package org.yourcompany.yourproject;
 
-import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.Socket;
+import java.util.Scanner;
 
 public class paraEnviar implements Runnable {
 
     private final DataOutputStream salida;
-    private final BufferedReader tecladoReader;
+    private final Socket socket;
+    private final Scanner tecladoScanner;
 
-    public paraEnviar(Socket s) throws IOException {
-        this.salida = new DataOutputStream(s.getOutputStream());
-        this.tecladoReader = new BufferedReader(new InputStreamReader(System.in));
+    public paraEnviar(Socket socket, Scanner scanner) throws IOException {
+        this.socket = socket;
+        this.salida = new DataOutputStream(socket.getOutputStream());
+        this.tecladoScanner = scanner;
     }
 
     @Override
     public void run() {
         try {
             while (true) {
-                String mensaje;
-                System.out.print("Tú: ");
-                mensaje = tecladoReader.readLine();
-                if (mensaje == null || mensaje.equalsIgnoreCase("/exit")) {
+                String mensaje = tecladoScanner.nextLine();
+                salida.writeUTF(mensaje);
+                salida.flush();
+
+                if (mensaje.equalsIgnoreCase("/exit")) {
                     System.out.println("Cerrando conexión...");
                     break;
                 }
-
-                salida.writeUTF(mensaje);
-                salida.flush();
             }
         } catch (IOException ex) {
-            System.err.println("Error al enviar mensaje. El servidor podría estar desconectado.");
+            // Este error suele ocurrir si el servidor se cierra mientras el cliente está activo.
+            System.err.println("La conexión con el servidor se ha perdido.");
         } finally {
             try {
-                if (salida != null) salida.close();
-                if (tecladoReader != null) tecladoReader.close();
+                if (socket != null && !socket.isClosed()) {
+                    socket.close();
+                }
             } catch (IOException e) {
-                System.err.println("Error al cerrar los streams: " + e.getMessage());
+                System.err.println("Error al cerrar el socket: " + e.getMessage());
             }
-            System.out.println("Hilo de envío terminado.");
         }
     }
 }
