@@ -12,21 +12,17 @@ public class ClienteMulti {
             Socket socket = new Socket("localhost", 8080);
             System.out.println("Conectado al servidor en el puerto 8080.");
 
-            // Pedimos el nombre al usuario
             Scanner scanner = new Scanner(System.in);
-            System.out.print("Ingresa tu nombre de usuario: ");
-            String nombreUsuario = scanner.nextLine();
+            System.out.print("Ingresa tu nombre de invitado: ");
+            String nombreInvitado = scanner.nextLine();
 
-            // Enviamos el nombre de usuario al servidor como primer mensaje
             DataOutputStream salida = new DataOutputStream(socket.getOutputStream());
-            salida.writeUTF(nombreUsuario);
+            salida.writeUTF(nombreInvitado);
 
-            // Iniciar hilo para enviar mensajes
             paraEnviar paraEnviar = new paraEnviar(socket, scanner);
             Thread hiloMandar = new Thread(paraEnviar);
             hiloMandar.start();
 
-            // Iniciar hilo para recibir mensajes
             paraRecibir paraRecibir = new paraRecibir(socket);
             Thread hiloRecibir = new Thread(paraRecibir);
             hiloRecibir.start();

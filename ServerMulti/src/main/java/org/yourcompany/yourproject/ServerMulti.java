@@ -8,10 +8,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class ServerMulti {
     
-    // Almacena clientes usando su ID único como clave.
     static ConcurrentHashMap<String, UnCliente> clientes = new ConcurrentHashMap<>();
     
+    private static final ConcurrentHashMap<String, String> userDatabase = new ConcurrentHashMap<>();
+
     public static void main(String[] args) {
+        userDatabase.put("admin", "1234");
+
         try (ServerSocket servidorSocket = new ServerSocket(8080)) {
             System.out.println("Servidor iniciado en el puerto 8080. Esperando clientes...");
             
@@ -21,7 +24,6 @@ public class ServerMulti {
                 
                 String clienteId = UUID.randomUUID().toString();
                 
-                // Pasamos el socket y el ID al constructor.
                 UnCliente cliente = new UnCliente(socketCliente, clienteId); 
                 clientes.put(clienteId, cliente);
                 
@@ -32,29 +34,35 @@ public class ServerMulti {
         }
     }
     
-    /**
-     * Envía un mensaje a todos los clientes conectados, excepto al que lo envió.
-     * @param mensaje El mensaje a difundir.
-     * @param emisorId El ID del cliente que originó el mensaje.
-     */
+    public static synchronized boolean registerUser(String username, String password) {
+        if (userDatabase.containsKey(username)) {
+            return false; // El usuario ya existe
+        }
+        userDatabase.put(username, password);
+        System.out.println("Nuevo usuario registrado: " + username);
+        return true;
+    }
+
+    public static synchronized boolean loginUser(String username, String password) {
+        return userDatabase.containsKey(username) && userDatabase.get(username).equals(password);
+    }
+    
     public static void broadcastMensaje(String mensaje, String emisorId) {
         for (UnCliente cliente : clientes.values()) {
-            // Comprobamos que no se le envíe el mensaje de vuelta al emisor.
             if (emisorId == null || !cliente.getId().equals(emisorId)) {
                 cliente.enviarMensaje(mensaje);
             }
         }
     }
     
-    /**
-     * Elimina un cliente del mapa de clientes conectados.
-     * @param clienteId El ID del cliente a remover.
-     */
     public static void removerCliente(String clienteId) {
         UnCliente clienteRemovido = clientes.remove(clienteId);
         if (clienteRemovido != null) {
             System.out.println("Cliente " + clienteRemovido.getNombre() + " desconectado. Clientes restantes: " + clientes.size());
-            broadcastMensaje("'" + clienteRemovido.getNombre() + "' ha abandonado el chat.", null);
+            // Solo anunciamos que se fue si ya tenía un nombre asignado
+            if (clienteRemovido.getNombre() != null && !clienteRemovido.getNombre().isEmpty()) {
+                broadcastMensaje("'" + clienteRemovido.getNombre() + "' ha abandonado el chat.", null);
+            }
         }
     }
 }
