@@ -11,8 +11,10 @@ public class UnCliente implements Runnable {
     private final DataInputStream entrada;
     private final DataOutputStream salida;
     private final String id;
-    private String nombre;
-
+    
+    // --- CAMPOS MODIFICADOS ---
+    private String nombre; 
+    private String username; 
     private boolean isAuthenticated = false;
 
     public UnCliente(Socket socket, String id) throws IOException {
@@ -24,30 +26,32 @@ public class UnCliente implements Runnable {
     
     public String getId() { return id; }
     public String getNombre() { return nombre; }
+    public String getUsername() { return username; }
 
     @Override
     public void run() {
         try {
+            // --- Mensaje de bienvenida MODIFICADO ---
             enviarMensaje("--- BIENVENIDO AL SERVIDOR ---");
             enviarMensaje("Debes autenticarte para poder chatear.");
             enviarMensaje("Usa /login <usuario> <contraseña>");
             enviarMensaje("O /register <nombre> <usuario> <contraseña>");
+            enviarMensaje("--- Comandos Adicionales ---");
+            enviarMensaje("/bloquear <usuario>   - Bloquea a un usuario.");
+            enviarMensaje("/desbloquear <usuario> - Desbloquea a un usuario.");
             enviarMensaje("---------------------------------");
             
             String mensajeRecibido;
             while (true) {
                 mensajeRecibido = entrada.readUTF();
                 
-                // Procesamos comandos (login/register)
                 if (mensajeRecibido.startsWith("/")) {
                     handleCommand(mensajeRecibido);
                 } else {
-                    // O procesamos mensajes de chat (que serán bloqueados si no está logueado)
                     handleChatMessage(mensajeRecibido);
                 }
             }
         } catch (IOException ex) {
-            // Si el nombre es null, significa que nunca se logueó
             if (this.nombre != null) {
                 System.out.println("El cliente '" + this.nombre + "' (" + id + ") perdió la conexión.");
             } else {
@@ -63,48 +67,79 @@ public class UnCliente implements Runnable {
         }
     }
 
+    // Método para gestionar comandos
     private void handleCommand(String commandMessage) {
         String[] parts = commandMessage.trim().split(" ");
         String command = parts[0];
 
-        if (isAuthenticated && (command.equals("/login") || command.equals("/register"))) {
-            enviarMensaje("Ya has iniciado sesión como " + this.nombre);
-            return;
-        }
-
-        switch (command) {
-            case "/register":
+        
+        if (command.equals("/login") || command.equals("/register")) {
+            
+            if (isAuthenticated) {
+                enviarMensaje("Ya has iniciado sesión como " + this.nombre);
+                return;
+            }
+            
+            if (command.equals("/register")) {
                 if (parts.length == 4) { 
                     if (ServerMulti.registerUser(parts[1], parts[2], parts[3])) {
-                        this.nombre = parts[1]; // Guardamos el Nombre real
+                        this.nombre = parts[1];
+                        this.username = parts[2];
                         this.isAuthenticated = true;
-                        enviarMensaje("✅ Registro exitoso. ¡Ahora eres '" + this.nombre + "'!");
-                        // AHORA SÍ ANUNCIAMOS QUE SE UNIÓ
-                        ServerMulti.broadcastMensaje("'" + this.nombre + "' se ha unido al chat.", null);
+                        enviarMensaje("Registro exitoso. ¡Ahora eres '" + this.nombre + "'!");
+                        ServerMulti.broadcastMensaje("'" + this.nombre + "' se ha unido al chat.", this);
                     } else {
                         enviarMensaje("Error: El nombre de usuario '" + parts[2] + "' ya está en uso.");
                     }
                 } else {
                     enviarMensaje("Uso incorrecto. Formato: /register <nombre> <usuario> <contraseña>");
                 }
-                break;
+            } 
             
-            case "/login":
+            if (command.equals("/login")) {
                 if (parts.length == 3) {
-                    // AHORA loginUser DEVUELVE EL 'Nombre' (String) O NULL
-                    String nombreLogueado = ServerMulti.loginUser(parts[1], parts[2]);
+                    String usuarioLogin = parts[1];
+                    String nombreLogueado = ServerMulti.loginUser(usuarioLogin, parts[2]);
                     
                     if (nombreLogueado != null) {
-                        this.nombre = nombreLogueado; // Guardamos el Nombre real
+                        this.nombre = nombreLogueado;
+                        this.username = usuarioLogin;
                         this.isAuthenticated = true;
                         enviarMensaje("Inicio de sesión exitoso. ¡Bienvenido de nuevo, " + this.nombre + "!");
-                        // AHORA SÍ ANUNCIAMOS QUE SE UNIÓ
-                        ServerMulti.broadcastMensaje("'" + this.nombre + "' se ha unido al chat.", null);
+                        ServerMulti.broadcastMensaje("'" + this.nombre + "' se ha unido al chat.", this);
                     } else {
                         enviarMensaje("Error: Usuario o contraseña incorrectos.");
                     }
                 } else {
                     enviarMensaje("Uso incorrecto. Formato: /login <usuario> <contraseña>");
+                }
+            }
+            return; 
+        }
+        
+        if (!isAuthenticated) {
+            enviarMensaje("Debes iniciar sesión para usar este comando.");
+            return;
+        }
+
+        switch (command) {
+            case "/bloquear":
+                if (parts.length == 2) {
+                    String userToBloquear = parts[1];
+                    String result = ServerMulti.blockUser(this.username, userToBloquear);
+                    enviarMensaje(result);
+                } else {
+                    enviarMensaje("Uso incorrecto. Formato: /bloquear <usuario>");
+                }
+                break;
+
+            case "/desbloquear":
+                if (parts.length == 2) {
+                    String userToDesbloquear = parts[1];
+                    String result = ServerMulti.unblockUser(this.username, userToDesbloquear);
+                    enviarMensaje(result);
+                } else {
+                    enviarMensaje("Uso incorrecto. Formato: /desbloquear <usuario>");
                 }
                 break;
 
@@ -114,23 +149,23 @@ public class UnCliente implements Runnable {
         }
     }
 
-    // Método para gestionar mensajes de chat normales
     private void handleChatMessage(String message) {
         if (isAuthenticated) {
-            // Si está autenticado, envía el mensaje
             String mensajeParaTodos = this.nombre + ": " + message;
-            ServerMulti.broadcastMensaje(mensajeParaTodos, this.id);
+            ServerMulti.broadcastMensaje(mensajeParaTodos, this);
         } else {
             enviarMensaje("Debes iniciar sesión o registrarte para enviar mensajes.");
             enviarMensaje("Usa /login <usuario> <pass> o /register <nombre> <usuario> <pass>");
         }
     }
 
+    // Enviar mensaje (sin cambios)
     public void enviarMensaje(String mensaje) {
         try {
             salida.writeUTF(mensaje);
             salida.flush();
         } catch (IOException e) {
+            // Si no se puede enviar, es probable que se haya desconectado
             ServerMulti.removerCliente(this.id);
         }
     }
