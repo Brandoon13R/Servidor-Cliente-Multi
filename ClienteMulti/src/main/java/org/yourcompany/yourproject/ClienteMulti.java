@@ -1,7 +1,6 @@
 package org.yourcompany.yourproject;
 
-import java.io.DataOutputStream;
-import java.io.IOException;
+import java.io.IOException; // Ya no se usa aquí
 import java.net.Socket;
 import java.util.Scanner;
 
@@ -13,12 +12,8 @@ public class ClienteMulti {
             System.out.println("Conectado al servidor en el puerto 8080.");
 
             Scanner scanner = new Scanner(System.in);
-            System.out.print("Ingresa tu nombre de invitado: ");
-            String nombreInvitado = scanner.nextLine();
 
-            DataOutputStream salida = new DataOutputStream(socket.getOutputStream());
-            salida.writeUTF(nombreInvitado);
-
+            // Iniciamos los hilos de envío y recepción inmediatamente
             paraEnviar paraEnviar = new paraEnviar(socket, scanner);
             Thread hiloMandar = new Thread(paraEnviar);
             hiloMandar.start();

@@ -9,10 +9,12 @@
         <maven.compiler.release>24</maven.compiler.release>
         <exec.mainClass>org.yourcompany.yourproject.ServerMulti</exec.mainClass>
     </properties>
-
-    <dependency>
-    <groupId>org.postgresql</groupId>
-    <artifactId>postgresql</artifactId>
-    <version>42.7.8</version> 
-    </dependency>
+    
+    <dependencies>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.8</version>
+        </dependency>
+    </dependencies>
 </project>
