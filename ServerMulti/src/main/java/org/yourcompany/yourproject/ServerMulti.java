@@ -13,6 +13,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ServerMulti {
     
     static ConcurrentHashMap<String, UnCliente> clientes = new ConcurrentHashMap<>();
+    static ConcurrentHashMap<String, String> invitacionesGato = new ConcurrentHashMap<>();
+    static ConcurrentHashMap<String, JuegoGato> juegosActivos = new ConcurrentHashMap<>();
+
 
     public static void main(String[] args) {
         try (ServerSocket servidorSocket = new ServerSocket(8080)) {
@@ -34,7 +37,6 @@ public class ServerMulti {
         }
     }
     
-    // Método de registro (sin cambios)
     public static synchronized boolean registerUser(String nombre, String usuario, String contrasena) {
         String checkSql = "SELECT COUNT(*) FROM Usuarios WHERE Usuario = ?;";
         String insertSql = "INSERT INTO Usuarios (Nombre, Usuario, Contrasena) VALUES (?, ?, ?);";
@@ -66,7 +68,6 @@ public class ServerMulti {
         }
     }
 
-    // Método de login (sin cambios)
     public static synchronized String loginUser(String usuario, String contrasena) {
         String loginSql = "SELECT Nombre, Contrasena FROM Usuarios WHERE Usuario = ?;";
         
@@ -95,17 +96,14 @@ public class ServerMulti {
         }
     }
 
-    /**
-     * Verifica si un 'Usuario' (login) existe en la BD.
-     */
     public static synchronized boolean doesUserExist(String username) {
+        // ... (Tu código existente)
         String checkSql = "SELECT COUNT(*) FROM Usuarios WHERE Usuario = ?;";
         try (Connection conn = Conexion.getConnection();
              PreparedStatement checkStmt = conn.prepareStatement(checkSql)) {
             
             checkStmt.setString(1, username);
             try (ResultSet rs = checkStmt.executeQuery()) {
-                // rs.next() es necesario para moverse a la primera fila de resultados
                 return rs.next() && rs.getInt(1) > 0;
             }
         } catch (SQLException e) {
@@ -114,9 +112,6 @@ public class ServerMulti {
         }
     }
 
-    /**
-     * Verifica si 'blocker_username' tiene bloqueado a 'blocked_username'.
-     */
     public static synchronized boolean isBlocked(String blocker_username, String blocked_username) {
         String checkSql = "SELECT COUNT(*) FROM bloqueados WHERE blocker_username = ? AND blocked_username = ?;";
         try (Connection conn = Conexion.getConnection();
@@ -125,7 +120,6 @@ public class ServerMulti {
             checkStmt.setString(1, blocker_username);
             checkStmt.setString(2, blocked_username);
             try (ResultSet rs = checkStmt.executeQuery()) {
-                // rs.next() es necesario
                 return rs.next() && rs.getInt(1) > 0;
             }
         } catch (SQLException e) {
@@ -134,24 +128,17 @@ public class ServerMulti {
         }
     }
 
-    /**
-     * Intenta bloquear un usuario. Devuelve un mensaje de estado.
-     */
     public static synchronized String blockUser(String blocker_username, String blocked_username) {
-        // Manejo de errores
         if (blocker_username.equalsIgnoreCase(blocked_username)) {
             return "Error: No puedes bloquearte a ti mismo.";
         }
-        // Verificamos si el usuario a bloquear existe
         if (!doesUserExist(blocked_username)) {
             return "Error: El usuario '" + blocked_username + "' no existe.";
         }
-        // Verificamos si ya está bloqueado
         if (isBlocked(blocker_username, blocked_username)) {
             return "Error: Ya tienes a '" + blocked_username + "' bloqueado.";
         }
 
-        // Lógica de bloqueo
         String insertSql = "INSERT INTO bloqueados (blocker_username, blocked_username) VALUES (?, ?);";
         try (Connection conn = Conexion.getConnection();
              PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
@@ -168,11 +155,7 @@ public class ServerMulti {
         }
     }
 
-    /**
-     * Intenta desbloquear un usuario. Devuelve un mensaje de estado.
-     */
     public static synchronized String unblockUser(String blocker_username, String blocked_username) {
-        // Manejo de errores
         if (!doesUserExist(blocked_username)) {
             return "Error: El usuario '" + blocked_username + "' no existe.";
         }
@@ -180,7 +163,6 @@ public class ServerMulti {
             return "Error: No tenías a '" + blocked_username + "' bloqueado.";
         }
 
-        // Lógica de desbloqueo
         String deleteSql = "DELETE FROM bloqueados WHERE blocker_username = ? AND blocked_username = ?;";
         try (Connection conn = Conexion.getConnection();
              PreparedStatement deleteStmt = conn.prepareStatement(deleteSql)) {
@@ -196,39 +178,63 @@ public class ServerMulti {
             return "Error de servidor al intentar desbloquear.";
         }
     }
-    /**
-     * Envía un mensaje a todos los clientes, excepto al emisor y a quienes
-     * hayan bloqueado al emisor.
-     * @param formattedMessage Mensaje ya formateado (ej. "Nombre: Hola")
-     * @param sender El objeto UnCliente del emisor (o null si es un mensaje del sistema)
-     */
+    
     public static void broadcastMensaje(String formattedMessage, UnCliente sender) {
         String senderUsername = (sender == null) ? null : sender.getUsername();
 
         for (UnCliente recipient : clientes.values()) {
             
             if (senderUsername != null) {
-                // 1. No enviar el mensaje de vuelta al emisor
                 if (recipient.getId().equals(sender.getId())) {
-                    continue; // Saltar al siguiente cliente
+                    continue; 
                 }
-                
-                // Si el destinatario (recipient) ha bloqueado al emisor (sender), no se lo enviamos.
                 if (isBlocked(recipient.getUsername(), senderUsername)) {
                     System.out.println("Mensaje de " + senderUsername + " bloqueado para " + recipient.getUsername());
-                    continue; // Saltar al siguiente cliente
+                    continue;
                 }
             }
 
             recipient.enviarMensaje(formattedMessage);
         }
     }
-    
+
+    /**
+     * Busca un cliente conectado por su nombre de usuario (login).
+     * @param username El nombre de usuario a buscar.
+     * @return El objeto UnCliente si está conectado, o null si no.
+     */
+    public static UnCliente getClientePorUsername(String username) {
+        if (username == null) return null;
+        for (UnCliente c : clientes.values()) {
+            if (c.getUsername() != null && c.getUsername().equalsIgnoreCase(username)) {
+                return c;
+            }
+        }
+        return null;
+    }
+
     public static void removerCliente(String clienteId) {
         UnCliente clienteRemovido = clientes.remove(clienteId);
+        
         if (clienteRemovido != null) {
+            String idJuego = clienteRemovido.getIdJuegoActual();
+            if (idJuego != null) {
+                JuegoGato juego = juegosActivos.get(idJuego);
+                if (juego != null && juego.isJuegoActivo()) {
+                    UnCliente oponente = juego.getOponente(clienteRemovido);
+                    if (oponente != null) {
+                        oponente.enviarMensaje("--- PARTIDA FINALIZADA ---");
+                        oponente.enviarMensaje("Tu oponente, " + clienteRemovido.getNombre() + ", se ha desconectado.");
+                        oponente.enviarMensaje("¡Has ganado la partida por default!");
+                        oponente.setIdJuegoActual(null);
+                    }
+                    juego.terminarJuego();
+                    juegosActivos.remove(idJuego);
+                }
+            }
+
             if (clienteRemovido.getNombre() != null && !clienteRemovido.getNombre().isEmpty()) {
-                 System.out.println("Cliente " + clienteRemovido.getNombre() + " desconectado. Clientes restantes: " + clientes.size());
+                System.out.println("Cliente " + clienteRemovido.getNombre() + " desconectado. Clientes restantes: " + clientes.size());
                 broadcastMensaje("'" + clienteRemovido.getNombre() + "' ha abandonado el chat.", null);
             } else {
                 System.out.println("Cliente no autenticado " + clienteId + " desconectado.");
