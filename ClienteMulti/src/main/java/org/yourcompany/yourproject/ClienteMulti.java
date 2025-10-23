@@ -1,6 +1,6 @@
 package org.yourcompany.yourproject;
 
-import java.io.IOException; // Ya no se usa aquí
+import java.io.IOException;
 import java.net.Socket;
 import java.util.Scanner;
 
