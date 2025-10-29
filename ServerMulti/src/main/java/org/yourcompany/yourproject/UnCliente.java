@@ -4,9 +4,10 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
-import java.util.UUID; // Importar UUID
+import java.util.UUID;
 
 public class UnCliente implements Runnable {
+    private static final String COMANDO_PREFIX = "#"; 
     
     private final Socket socket;
     private final DataInputStream entrada;
@@ -17,8 +18,7 @@ public class UnCliente implements Runnable {
     private String username; 
     private boolean isAuthenticated = false;
 
-    // --- NUEVO CAMPO ---
-    private String idJuegoActual = null; // ID del juego en el que está participando
+    private String idJuegoActual = null;
 
     public UnCliente(Socket socket, String id) throws IOException {
         this.socket = socket;
@@ -31,7 +31,6 @@ public class UnCliente implements Runnable {
     public String getNombre() { return nombre; }
     public String getUsername() { return username; }
 
-    // --- NUEVO GETTER/SETTER ---
     public String getIdJuegoActual() { return idJuegoActual; }
     public void setIdJuegoActual(String idJuegoActual) { this.idJuegoActual = idJuegoActual; }
 
@@ -39,39 +38,26 @@ public class UnCliente implements Runnable {
     @Override
     public void run() {
         try {
-            // --- Mensaje de bienvenida MODIFICADO ---
-            enviarMensaje("--- BIENVENIDO AL SERVIDOR ---");
+            enviarMensaje("BIENVENIDO AL SERVIDOR");
+            enviarMensaje("");
             enviarMensaje("Debes autenticarte para poder chatear.");
-            enviarMensaje("Usa /login <usuario> <contraseña>");
-            enviarMensaje("O /register <nombre> <usuario> <contraseña>");
-            enviarMensaje("--- Comandos de Chat ---");
-            enviarMensaje("/bloquear <usuario>   - Bloquea a un usuario.");
-            enviarMensaje("/desbloquear <usuario> - Desbloquea a un usuario.");
-            enviarMensaje("--- Comandos de Juego (Gato) ---");
-            enviarMensaje("/gato <usuario>       - Reta a un jugador.");
-            enviarMensaje("/aceptar <usuario>    - Acepta un reto.");
-            enviarMensaje("/rechazar <usuario>   - Rechaza un reto.");
-            enviarMensaje("/mover <fila> <col>   - (En partida) Coloca tu ficha (0-2).");
-            enviarMensaje("/rendirse             - (En partida) Abandona la partida.");
-            enviarMensaje("---------------------------------");
+            enviarMensaje(COMANDO_PREFIX + "login <usuario> <contraseña>");
+            enviarMensaje(COMANDO_PREFIX + "register <nombre> <usuario> <contraseña>");
+            enviarMensaje("");
             
             String mensajeRecibido;
             while (true) {
                 mensajeRecibido = entrada.readUTF();
                 
-                // --- LÓGICA DE ESTADO (JUGANDO O CHATEANDO) ---
                 if (this.idJuegoActual != null) {
-                    // El cliente está en una partida
-                    handleGameCommand(mensajeRecibido);
+                    handleGameCommand(mensajeRecibido, COMANDO_PREFIX);
                 } else {
-                    // El cliente está en el chat
-                    if (mensajeRecibido.startsWith("/")) {
+                    if (mensajeRecibido.startsWith(COMANDO_PREFIX)) {
                         handleCommand(mensajeRecibido);
                     } else {
                         handleChatMessage(mensajeRecibido);
                     }
                 }
-                // --- FIN LÓGICA DE ESTADO ---
             }
         } catch (IOException ex) {
             if (this.nombre != null) {
@@ -80,6 +66,18 @@ public class UnCliente implements Runnable {
                 System.out.println("Un cliente no autenticado (" + id + ") perdió la conexión.");
             }
         } finally {
+            if (this.idJuegoActual != null) {
+                JuegoGato juego = ServerMulti.juegosActivos.get(this.idJuegoActual);
+                if (juego != null && juego.isJuegoActivo()) {
+                    UnCliente oponente = juego.getOponente(this);
+                    if (oponente != null) {
+                        oponente.enviarMensaje("Tu oponente, " + this.getNombre() + ", se ha desconectado.");
+                        oponente.enviarMensaje("¡Has ganado la partida!");
+                        juego.notificarVictoria(oponente, false);
+                    }
+                }
+            }
+
             ServerMulti.removerCliente(this.id);
             try {
                 if (socket != null && !socket.isClosed()) socket.close();
@@ -89,88 +87,102 @@ public class UnCliente implements Runnable {
         }
     }
 
-    // --- NUEVO MÉTODO ---
-    /**
-     * Maneja los comandos recibidos MIENTRAS el usuario está en una partida.
-     */
-    private void handleGameCommand(String commandMessage) {
+    public void menuPrincipal(){
+        enviarMensaje("MENÚ PRINCIPAL");
+        enviarMensaje("");
+
+        enviarMensaje("Comandos de Chat Básicos:");
+        enviarMensaje("  " + COMANDO_PREFIX + "bloquear <usuario>   - Bloquea a un usuario.");
+        enviarMensaje("  " + COMANDO_PREFIX + "desbloquear <usuario> - Desbloquea a un usuario.");
+        enviarMensaje("");
+
+        enviarMensaje("Usa los siguientes comandos para ver más opciones:");
+        enviarMensaje("  " + COMANDO_PREFIX + "comandos juego    - Muestra la ayuda del juego Gato.");
+        enviarMensaje("  " + COMANDO_PREFIX + "comandos ranking  - Muestra la ayuda de clasificaciones.");
+        enviarMensaje("");
+    }
+
+    private void handleGameCommand(String commandMessage, String prefix) {
         JuegoGato juego = ServerMulti.juegosActivos.get(this.idJuegoActual);
 
-        // Seguridad: si el juego no existe por alguna razón, liberar al cliente
         if (juego == null || !juego.isJuegoActivo()) {
             this.idJuegoActual = null;
             enviarMensaje("Error: La partida en la que estabas ha finalizado o no existe.");
             return;
         }
 
-        String[] parts = commandMessage.trim().split(" ");
-        String command = parts[0];
+        // --- MODIFICADO ---
+        // Solo procesamos si empieza con el prefijo. Si no, lo ignoramos.
+        if (!commandMessage.startsWith(prefix)) {
+            enviarMensaje("No puedes enviar mensajes al chat general mientras estás en una partida.");
+            return;
+        }
+
+        // 2. Quitamos el prefijo para limpiar el comando
+        String comandoLimpio = commandMessage.substring(prefix.length()).trim();
+        String[] parts = comandoLimpio.split(" ");
+        String command = parts[0]; 
 
         switch (command) {
-            case "/mover":
+            case "mover":
                 if (parts.length == 3) {
                     try {
                         int fila = Integer.parseInt(parts[1]);
                         int col = Integer.parseInt(parts[2]);
-                        // La lógica de turnos y validación se delega al objeto JuegoGato
                         juego.hacerMovimiento(this, fila, col);
                     } catch (NumberFormatException e) {
                         enviarMensaje("Error: Fila y columna deben ser números (0, 1, o 2).");
                     }
                 } else {
-                    enviarMensaje("Uso incorrecto. Formato: /mover <fila> <col>");
+                    enviarMensaje("Uso incorrecto. Comando: " + COMANDO_PREFIX + "mover <fila> <col>");
                 }
                 break;
             
-            case "/rendirse":
+            case "rendirse":
                 enviarMensaje("Te has rendido.");
                 UnCliente oponente = juego.getOponente(this);
                 oponente.enviarMensaje("Tu oponente, " + this.getNombre() + ", se ha rendido.");
                 oponente.enviarMensaje("¡Has ganado la partida!");
-                // notificarVictoria se encarga de terminarJuego() y limpiar todo
-                juego.notificarVictoria(oponente, false); // false = no por jugada, sino por rendición
+                juego.notificarVictoria(oponente, false);
                 break;
 
             default:
-                if (commandMessage.startsWith("/")) {
-                    enviarMensaje("Comando no permitido durante el juego. Usa /mover <f> <c> o /rendirse.");
-                } else {
-                    enviarMensaje("No puedes enviar mensajes al chat general mientras estás en una partida.");
-                }
+                enviarMensaje("Comando no permitido durante el juego. Usa " + COMANDO_PREFIX + "mover <fila> <columna> o " + COMANDO_PREFIX + "rendirse.");
                 break;
         }
     }
 
-    // Método para gestionar comandos (del chat)
     private void handleCommand(String commandMessage) {
-        String[] parts = commandMessage.trim().split(" ");
-        String command = parts[0];
-
+        String comandoLimpio = commandMessage.substring(COMANDO_PREFIX.length()).trim();
+        String[] parts = comandoLimpio.split(" ");
+        String command = parts[0]; 
         
-        if (command.equals("/login") || command.equals("/register")) {
+        if (command.equals("login") || command.equals("register")) {
             
             if (isAuthenticated) {
-                enviarMensaje("Ya has iniciado sesión como " + this.nombre);
+                enviarMensaje("Ya has iniciado sesión con este usuario " + this.nombre);
                 return;
             }
             
-            if (command.equals("/register")) {
+            if (command.equals("register")) {
                 if (parts.length == 4) { 
                     if (ServerMulti.registerUser(parts[1], parts[2], parts[3])) {
                         this.nombre = parts[1];
                         this.username = parts[2];
                         this.isAuthenticated = true;
-                        enviarMensaje("Registro exitoso. ¡Ahora eres '" + this.nombre + "'!");
+                        enviarMensaje("Registro exitoso. ¡Bienvenido '" + this.nombre + "'!");
                         ServerMulti.broadcastMensaje("'" + this.nombre + "' se ha unido al chat.", this);
+
+                        menuPrincipal();
                     } else {
                         enviarMensaje("Error: El nombre de usuario '" + parts[2] + "' ya está en uso.");
                     }
                 } else {
-                    enviarMensaje("Uso incorrecto. Formato: /register <nombre> <usuario> <contraseña>");
+                    enviarMensaje("Uso incorrecto. Comando: " + COMANDO_PREFIX + "register <nombre> <usuario> <contraseña>");
                 }
             } 
             
-            if (command.equals("/login")) {
+            if (command.equals("login")) {
                 if (parts.length == 3) {
                     String usuarioLogin = parts[1];
                     String nombreLogueado = ServerMulti.loginUser(usuarioLogin, parts[2]);
@@ -181,11 +193,14 @@ public class UnCliente implements Runnable {
                         this.isAuthenticated = true;
                         enviarMensaje("Inicio de sesión exitoso. ¡Bienvenido de nuevo, " + this.nombre + "!");
                         ServerMulti.broadcastMensaje("'" + this.nombre + "' se ha unido al chat.", this);
+                        
+                        enviarMensaje("");
+                        menuPrincipal(); 
                     } else {
                         enviarMensaje("Error: Usuario o contraseña incorrectos.");
                     }
                 } else {
-                    enviarMensaje("Uso incorrecto. Formato: /login <usuario> <contraseña>");
+                    enviarMensaje("Uso incorrecto. Comando: " + COMANDO_PREFIX + "login <usuario> <contraseña>");
                 }
             }
             return; 
@@ -197,51 +212,96 @@ public class UnCliente implements Runnable {
         }
 
         switch (command) {
-            case "/bloquear":
+            case "bloquear":
                 if (parts.length == 2) {
                     String userToBloquear = parts[1];
                     String result = ServerMulti.blockUser(this.username, userToBloquear);
                     enviarMensaje(result);
                 } else {
-                    enviarMensaje("Uso incorrecto. Formato: /bloquear <usuario>");
+                    enviarMensaje("Uso incorrecto. Comando: " + COMANDO_PREFIX + "bloquear <usuario>");
                 }
                 break;
 
-            case "/desbloquear":
+            case "desbloquear":
                 if (parts.length == 2) {
                     String userToDesbloquear = parts[1];
                     String result = ServerMulti.unblockUser(this.username, userToDesbloquear);
                     enviarMensaje(result);
                 } else {
-                    enviarMensaje("Uso incorrecto. Formato: /desbloquear <usuario>");
+                    enviarMensaje("Uso incorrecto. Comando: " + COMANDO_PREFIX + "desbloquear <usuario>");
                 }
                 break;
             
-            // --- NUEVOS CASOS DE JUEGO ---
-            case "/gato":
+            case "gato":
                 if (parts.length == 2) {
                     proponerPartida(parts[1]);
                 } else {
-                    enviarMensaje("Uso incorrecto. Formato: /gato <usuario>");
+                    enviarMensaje("Uso incorrecto. Comando: " + COMANDO_PREFIX + "gato <usuario>");
                 }
                 break;
 
-            case "/aceptar":
+            case "aceptar":
                 if (parts.length == 2) {
                     aceptarPartida(parts[1]);
                 } else {
-                    enviarMensaje("Uso incorrecto. Formato: /aceptar <usuario>");
+                    enviarMensaje("Uso incorrecto. Comando: " + COMANDO_PREFIX + "aceptar <usuario>");
                 }
                 break;
 
-            case "/rechazar":
+            case "rechazar":
                 if (parts.length == 2) {
                     rechazarPartida(parts[1]);
                 } else {
-                    enviarMensaje("Uso incorrecto. Formato: /rechazar <usuario>");
+                    enviarMensaje("Uso incorrecto. Comando: " + COMANDO_PREFIX + "rechazar <usuario>");
                 }
                 break;
-            // --- FIN NUEVOS CASOS ---
+
+            case "ranking":
+                enviarMensaje("Calculando ranking general...");
+                String ranking = ManejadorRankings.getRankingGeneralFormateado();
+                enviarMensaje(ranking);
+                break;
+
+            case "vs":
+                if (parts.length == 2) {
+                    String oponente = parts[1];
+                    String miUsuario = this.username;
+                    
+                    if (oponente.equalsIgnoreCase(miUsuario)) {
+                        enviarMensaje("No puedes ver estadísticas contra ti mismo.");
+                    } else {
+                        enviarMensaje("Buscando estadísticas H2H vs " + oponente + "...");
+                        String stats = ManejadorRankings.getEstadisticasH2HFormateado(miUsuario, oponente);
+                        enviarMensaje(stats);
+                    }
+                } else {
+                    enviarMensaje("Uso incorrecto. Comando: " + COMANDO_PREFIX + "vs <usuario>");
+                }
+                break;
+
+            case "comandos":
+                if (parts.length == 2) {
+                    String subMenu = parts[1].toLowerCase(); 
+                    
+                    if (subMenu.equals("juego")) {
+                        enviarMensaje("Comandos de Juego (Gato)");
+                        enviarMensaje("  " + COMANDO_PREFIX + "gato <usuario>     - Reta a un jugador.");
+                        enviarMensaje("  " + COMANDO_PREFIX + "aceptar <usuario>  - Acepta un reto.");
+                        enviarMensaje("  " + COMANDO_PREFIX + "rechazar <usuario> - Rechaza un reto.");
+                        enviarMensaje("  (Durante la partida, también puedes usar " + COMANDO_PREFIX + "mover y " + COMANDO_PREFIX + "rendirse)");
+
+                    } else if (subMenu.equals("ranking")) {
+                        enviarMensaje("Comandos de Ranking");
+                        enviarMensaje("  " + COMANDO_PREFIX + "ranking        - Muestra el ranking general de Gato.");
+                        enviarMensaje("  " + COMANDO_PREFIX + "vs <usuario>   - Muestra tus estadísticas contra otro jugador.");
+
+                    } else {
+                        enviarMensaje("Ayuda no encontrada. Opciones: " + COMANDO_PREFIX + "comandos juego, " + COMANDO_PREFIX + "comandos ranking");
+                    }
+                } else {
+                    enviarMensaje("Escribe " + COMANDO_PREFIX + "comandos juego o " + COMANDO_PREFIX + "comandos ranking para ver la ayuda.");
+                }
+                break;
 
             default:
                 enviarMensaje("Comando desconocido: " + command);
@@ -249,10 +309,7 @@ public class UnCliente implements Runnable {
         }
     }
 
-    // --- NUEVOS MÉTODOS PRIVADOS (Lógica de invitación) ---
-
     private void proponerPartida(String targetUsername) {
-        // 1. Validaciones
         if (targetUsername.equalsIgnoreCase(this.username)) {
             enviarMensaje("Error: No puedes retarte a ti mismo.");
             return;
@@ -270,33 +327,26 @@ public class UnCliente implements Runnable {
             return;
         }
 
-        // Regla: "no más de uno con alguien en particular" (interpretado como "invitación activa")
-        // Esta regla previene que un usuario (targetUsername) reciba múltiples invitaciones
         if (ServerMulti.invitacionesGato.containsKey(oponente.getUsername())) {
              enviarMensaje("Error: Ese jugador ya tiene una invitación pendiente.");
             return;
         }
-        // Esta regla previene que un usuario que YA recibió una invitación envíe otra
+
         if (ServerMulti.invitacionesGato.containsKey(this.username)) {
              enviarMensaje("Error: Ya tienes una invitación pendiente de '" + ServerMulti.invitacionesGato.get(this.username) + "'.");
-             enviarMensaje("Debes /aceptar o /rechazar esa invitación primero.");
+             enviarMensaje("Debes " + COMANDO_PREFIX + "aceptar o " + COMANDO_PREFIX + "rechazar esa invitación primero.");
             return;
         }
 
-
-        // 2. Enviar invitación
-        // Mapeamos al invitado (target) con el retador (this)
         ServerMulti.invitacionesGato.put(oponente.getUsername(), this.username);
         enviarMensaje("Invitación enviada a " + oponente.getNombre() + ". Esperando respuesta...");
         oponente.enviarMensaje("---------------------------------");
         oponente.enviarMensaje("¡NUEVO RETO! " + this.nombre + " (" + this.username + ") te ha retado a Gato.");
-        oponente.enviarMensaje("Usa /aceptar " + this.username + " o /rechazar " + this.username);
+        oponente.enviarMensaje("Usa " + COMANDO_PREFIX + "aceptar " + this.username + " o " + COMANDO_PREFIX + "rechazar " + this.username);
         oponente.enviarMensaje("---------------------------------");
     }
 
     private void aceptarPartida(String retadorUsername) {
-        // 1. Validar invitación
-        // Verificamos si 'this.username' (yo) tengo una invitación del 'retadorUsername'
         String retadorQueInvito = ServerMulti.invitacionesGato.get(this.username);
         
         if (retadorQueInvito == null || !retadorQueInvito.equalsIgnoreCase(retadorUsername)) {
@@ -308,35 +358,29 @@ public class UnCliente implements Runnable {
         
         if (retador == null) {
             enviarMensaje("Error: El retador '" + retadorUsername + "' se ha desconectado.");
-            ServerMulti.invitacionesGato.remove(this.username); // Limpiar invitación
+            ServerMulti.invitacionesGato.remove(this.username);
             return;
         }
 
-        // 2. Validar que sigan disponibles (por si el retador empezó otro juego)
         if (this.idJuegoActual != null || retador.getIdJuegoActual() != null) {
             enviarMensaje("Error: Uno de los dos ya está en otra partida.");
             ServerMulti.invitacionesGato.remove(this.username);
             return;
         }
 
-        // 3. ¡Crear la partida!
-        ServerMulti.invitacionesGato.remove(this.username); // Quitar invitación
+        ServerMulti.invitacionesGato.remove(this.username);
         
         String gameId = UUID.randomUUID().toString();
-        // El constructor de JuegoGato decide aleatoriamente quién empieza
-        // J1 = retador, J2 = this (quien aceptó)
         JuegoGato nuevoJuego = new JuegoGato(retador, this, gameId); 
         
         ServerMulti.juegosActivos.put(gameId, nuevoJuego);
         retador.setIdJuegoActual(gameId);
         this.setIdJuegoActual(gameId);
 
-        // 4. Notificar a los jugadores (JuegoGato se encarga)
         nuevoJuego.iniciarPartida();
     }
 
     private void rechazarPartida(String retadorUsername) {
-        // Verificamos si la invitación existe
         String retadorQueInvito = ServerMulti.invitacionesGato.get(this.username);
 
         if (retadorQueInvito == null || !retadorQueInvito.equalsIgnoreCase(retadorUsername)) {
@@ -344,7 +388,6 @@ public class UnCliente implements Runnable {
             return;
         }
 
-        // Limpiar invitación
         ServerMulti.invitacionesGato.remove(this.username);
         enviarMensaje("Has rechazado la invitación de " + retadorUsername + ".");
 
@@ -361,7 +404,7 @@ public class UnCliente implements Runnable {
             ServerMulti.broadcastMensaje(mensajeParaTodos, this);
         } else {
             enviarMensaje("Debes iniciar sesión o registrarte para enviar mensajes.");
-            enviarMensaje("Usa /login <usuario> <pass> o /register <nombre> <usuario> <pass>");
+            enviarMensaje("Usa " + COMANDO_PREFIX + "login <usuario> <pass> o " + COMANDO_PREFIX + "register <nombre> <usuario> <pass>");
         }
     }
 
@@ -372,7 +415,7 @@ public class UnCliente implements Runnable {
             salida.flush();
         } catch (IOException e) {
             // Si no se puede enviar, es probable que se haya desconectado
-            ServerMulti.removerCliente(this.id);
+            // El 'finally' en run() se encargará de removerlo
         }
     }
 }
