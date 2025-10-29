@@ -195,6 +195,10 @@ public class JuegoGato {
             perdedor.enviarMensaje("Mejor suerte la próxima, " + perdedor.getNombre() + ". Has perdido.");
         }
         
+        // --- ¡CORRECCIÓN AQUÍ! ---
+        // Registra la victoria en la base de datos (usando getUsername() como acordamos)
+        ManejadorRankings.registrarPartida(jugador1.getUsername(), jugador2.getUsername(), ganador.getUsername());
+        
         terminarJuego();
     }
 
@@ -205,6 +209,11 @@ public class JuegoGato {
         String msg = "¡La partida es un empate! (Gato)";
         jugador1.enviarMensaje(msg);
         jugador2.enviarMensaje(msg);
+        
+        // --- ¡CORRECCIÓN AQUÍ! ---
+        // Registra el empate en la base de datos (ganador es null)
+        ManejadorRankings.registrarPartida(jugador1.getUsername(), jugador2.getUsername(), null);
+
         terminarJuego();
     }
 
@@ -227,6 +236,9 @@ public class JuegoGato {
         }
         
         // Quitar de la lista de juegos activos
-        ServerMulti.juegosActivos.remove(this.idJuego);
+        // (Asegúrate de que 'ServerMulti' y 'juegosActivos' son accesibles)
+        if (ServerMulti.juegosActivos != null) {
+            ServerMulti.juegosActivos.remove(this.idJuego);
+        }
     }
 }
