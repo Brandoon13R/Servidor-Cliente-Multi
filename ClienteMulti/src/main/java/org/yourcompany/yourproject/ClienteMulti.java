@@ -13,7 +13,6 @@ public class ClienteMulti {
 
             Scanner scanner = new Scanner(System.in);
 
-            // Iniciamos los hilos de envío y recepción inmediatamente
             paraEnviar paraEnviar = new paraEnviar(socket, scanner);
             Thread hiloMandar = new Thread(paraEnviar);
             hiloMandar.start();
