@@ -16,8 +16,9 @@ public class ServerMulti {
     static ConcurrentHashMap<String, String> invitacionesGato = new ConcurrentHashMap<>();
     static ConcurrentHashMap<String, JuegoGato> juegosActivos = new ConcurrentHashMap<>();
 
-
     public static void main(String[] args) {
+        Conexion.inicializarTablas(); 
+
         try (ServerSocket servidorSocket = new ServerSocket(8080)) {
             System.out.println("Servidor iniciado en el puerto 8080. Esperando clientes...");
             
@@ -97,7 +98,6 @@ public class ServerMulti {
     }
 
     public static synchronized boolean doesUserExist(String username) {
-        // ... (Tu código existente)
         String checkSql = "SELECT COUNT(*) FROM Usuarios WHERE Usuario = ?;";
         try (Connection conn = Conexion.getConnection();
              PreparedStatement checkStmt = conn.prepareStatement(checkSql)) {
@@ -198,11 +198,6 @@ public class ServerMulti {
         }
     }
 
-    /**
-     * Busca un cliente conectado por su nombre de usuario (login).
-     * @param username El nombre de usuario a buscar.
-     * @return El objeto UnCliente si está conectado, o null si no.
-     */
     public static UnCliente getClientePorUsername(String username) {
         if (username == null) return null;
         for (UnCliente c : clientes.values()) {

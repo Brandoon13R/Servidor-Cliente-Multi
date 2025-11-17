@@ -111,14 +111,11 @@ public class UnCliente implements Runnable {
             return;
         }
 
-        // --- MODIFICADO ---
-        // Solo procesamos si empieza con el prefijo. Si no, lo ignoramos.
         if (!commandMessage.startsWith(prefix)) {
             enviarMensaje("No puedes enviar mensajes al chat general mientras estás en una partida.");
             return;
         }
 
-        // 2. Quitamos el prefijo para limpiar el comando
         String comandoLimpio = commandMessage.substring(prefix.length()).trim();
         String[] parts = comandoLimpio.split(" ");
         String command = parts[0]; 
@@ -408,14 +405,11 @@ public class UnCliente implements Runnable {
         }
     }
 
-    // Enviar mensaje (sin cambios)
     public void enviarMensaje(String mensaje) {
         try {
             salida.writeUTF(mensaje);
             salida.flush();
         } catch (IOException e) {
-            // Si no se puede enviar, es probable que se haya desconectado
-            // El 'finally' en run() se encargará de removerlo
         }
     }
 }
